@@ -12,13 +12,14 @@ from environment import SmartEmailTriageEnv
 from grader import EmailTriageGrader
 
 # ── OpenAI client (reads env vars set in Space secrets) ──────────────────────
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-# Fall back to a dummy key so OpenAI() initialises without error even when no
-# credentials are present; real calls will fail and hit the heuristic fallback.
-API_KEY      = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN") or "dummy-key"
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://api-inference.huggingface.co/v1")
+MODEL_NAME   = os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+API_KEY      = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN") or ""
+# If no key is available, skip API calls and use the heuristic fallback
+# immediately — avoids network timeouts when the validator runs without secrets.
+HAS_API_KEY  = bool(API_KEY)
 
-client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+client = OpenAI(api_key=API_KEY or "dummy-key", base_url=API_BASE_URL)
 
 
 # ── Agent ─────────────────────────────────────────────────────────────────────
@@ -37,7 +38,19 @@ class BaselineAgent:
         "  reasoning      : one sentence explaining your decision"
     )
 
+    def _heuristic(self, observation: EmailObservation, reason: str = "") -> AgentAction:
+        body    = observation.body.lower()
+        sender  = observation.sender.lower()
+        subject = observation.subject.lower()
+        if "win" in subject or "prize" in body or "malicious" in body or ".biz" in sender:
+            return AgentAction(category=EmailCategory.SPAM,     priority=EmailPriority.LOW,  should_archive=True,  reasoning=f"Heuristic: spam {reason}")
+        if "ceo" in sender or "urgent" in subject or "latency" in body or "overdue" in subject:
+            return AgentAction(category=EmailCategory.IMPORTANT, priority=EmailPriority.HIGH, should_archive=False, reasoning=f"Heuristic: important {reason}")
+        return AgentAction(category=EmailCategory.NORMAL, priority=EmailPriority.NORMAL, should_archive=False, reasoning=f"Heuristic: default {reason}")
+
     def decide(self, observation: EmailObservation) -> AgentAction:
+        if not HAS_API_KEY:
+            return self._heuristic(observation, "(no API key)")
         user_msg = (
             f"From: {observation.sender}\n"
             f"Subject: {observation.subject}\n"
@@ -63,15 +76,7 @@ class BaselineAgent:
                 reasoning=data.get("reasoning", ""),
             )
         except Exception as e:
-            # Fallback heuristic if LLM call fails
-            body    = observation.body.lower()
-            sender  = observation.sender.lower()
-            subject = observation.subject.lower()
-            if "win" in subject or "prize" in body or "malicious" in body or ".biz" in sender:
-                return AgentAction(category=EmailCategory.SPAM,      priority=EmailPriority.LOW,    should_archive=True,  reasoning=f"Fallback: spam heuristic ({e})")
-            if "ceo" in sender or "urgent" in subject or "latency" in body or "overdue" in subject:
-                return AgentAction(category=EmailCategory.IMPORTANT,  priority=EmailPriority.HIGH,   should_archive=False, reasoning=f"Fallback: importance heuristic ({e})")
-            return AgentAction(category=EmailCategory.NORMAL, priority=EmailPriority.NORMAL, should_archive=False, reasoning=f"Fallback: default ({e})")
+            return self._heuristic(observation, f"(API error: {e})")
 
 
 # ── Main simulation ───────────────────────────────────────────────────────────

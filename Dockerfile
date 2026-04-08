@@ -8,6 +8,10 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
+# Default inference environment (override via docker run -e or HF Space secrets)
+ENV API_BASE_URL=https://api-inference.huggingface.co/v1
+ENV MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
