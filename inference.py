@@ -14,7 +14,9 @@ from grader import EmailTriageGrader
 # ── OpenAI client (reads env vars set in Space secrets) ──────────────────────
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-API_KEY      = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN", "")
+# Fall back to a dummy key so OpenAI() initialises without error even when no
+# credentials are present; real calls will fail and hit the heuristic fallback.
+API_KEY      = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN") or "dummy-key"
 
 client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 
@@ -82,29 +84,14 @@ def run_simulation(output_file: Optional[str] = None):
     done = False
     step = 0
 
-    print(json.dumps({
-        "event":     "[START]",
-        "model":     MODEL_NAME,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-    }))
+    print(f"[START] task=email_triage model={MODEL_NAME} timestamp={datetime.utcnow().isoformat()}Z", flush=True)
 
     while not done:
         step += 1
         action                      = agent.decide(obs)
         next_obs, reward, done, info = env.step(action)
 
-        print(json.dumps({
-            "event":    "[STEP]",
-            "step":     step,
-            "email_id": obs.id,
-            "action": {
-                "category":       action.category.value,
-                "priority":       action.priority.value,
-                "should_archive": action.should_archive,
-            },
-            "reward": round(reward, 4),
-            "done":   done,
-        }))
+        print(f"[STEP] step={step} reward={round(reward, 4)} email_id={obs.id} category={action.category.value} priority={action.priority.value} archive={action.should_archive} done={done}", flush=True)
 
         obs = next_obs
 
@@ -121,14 +108,7 @@ def run_simulation(output_file: Optional[str] = None):
         "results": report.detailed_results,
     }
 
-    print(json.dumps({
-        "event":       "[END]",
-        "total_steps": step,
-        "total_score": report.total_score,
-        "max_score":   report.max_possible_score,
-        "accuracy":    report.accuracy_percentage,
-        "timestamp":   datetime.utcnow().isoformat() + "Z",
-    }))
+    print(f"[END] task=email_triage total_steps={step} total_score={report.total_score} max_score={report.max_possible_score} accuracy={report.accuracy_percentage} timestamp={datetime.utcnow().isoformat()}Z", flush=True)
 
     if output_file:
         with open(output_file, "w") as f:
