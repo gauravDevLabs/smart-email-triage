@@ -12,3 +12,6 @@ dependencies = [
     "pydantic",
     "uvicorn[standard]>=0.29.0",
 ]
+
+[project.scripts]
+server = "server.app:main"
