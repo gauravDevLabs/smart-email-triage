@@ -1,0 +1,62 @@
+version: "1.0.0"
+metadata:
+  name: "SmartEmailTriageEnv"
+  description: "Reinforcement learning environment for real-world intelligent email triage."
+  tags: ["NLP", "Triage", "Agentic", "Enterprise", "openenv"]
+
+observation_space:
+  type: "dict"
+  schema:
+    id: "string"
+    sender: "string"
+    subject: "string"
+    body: "string"
+    timestamp: "string"
+
+action_space:
+  type: "dict"
+  schema:
+    category: 
+      type: "enum"
+      values: ["spam", "normal", "important"]
+    priority: 
+      type: "enum"
+      values: ["low", "normal", "high"]
+    response_draft: "string (optional)"
+    should_archive: "boolean"
+    reasoning: "string (optional)"
+
+rewards:
+  classification:
+    weight: 1.0
+    description: "Points for matching the ground truth email category."
+  priority:
+    weight: 0.5
+    description: "Points for matching the ground truth email priority."
+  archiving:
+    weight: 0.3
+    description: "Points for correctly archiving or keeping the email in the inbox."
+  response_quality:
+    weight: 1.0
+    description: "Points based on the presence of key information in the generated response."
+  spam_penalty:
+    weight: -0.5
+    description: "Penalty for responding to spam emails."
+
+task_registry:
+  easy:
+    - E001
+    - E002
+  medium:
+    - M001
+    - M002
+    - M003
+  hard:
+    - H001
+    - H002
+    - H003
+
+constraints:
+  max_steps_per_email: 1
+  deterministic_grading: true
+  sequential_processing: true

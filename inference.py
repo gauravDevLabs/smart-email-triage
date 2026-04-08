@@ -1,0 +1,147 @@
+import os
+import json
+import argparse
+from datetime import datetime
+from typing import Optional
+from openai import OpenAI
+
+from models import (
+    EmailObservation, AgentAction, EmailCategory, EmailPriority
+)
+from environment import SmartEmailTriageEnv
+from grader import EmailTriageGrader
+
+# ── OpenAI client (reads env vars set in Space secrets) ──────────────────────
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+API_KEY      = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN", "")
+
+client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+class BaselineAgent:
+    """LLM-powered email triage agent using the OpenAI client."""
+
+    SYSTEM_PROMPT = (
+        "You are an expert email triage assistant. "
+        "Given an email, classify it and decide how to handle it. "
+        "Respond ONLY with a valid JSON object — no markdown, no extra text — "
+        "with these exact keys:\n"
+        "  category       : one of 'spam', 'normal', 'important'\n"
+        "  priority       : one of 'low', 'normal', 'high'\n"
+        "  should_archive : true or false\n"
+        "  response_draft : a short professional reply string, or null\n"
+        "  reasoning      : one sentence explaining your decision"
+    )
+
+    def decide(self, observation: EmailObservation) -> AgentAction:
+        user_msg = (
+            f"From: {observation.sender}\n"
+            f"Subject: {observation.subject}\n"
+            f"Body: {observation.body}"
+        )
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_msg},
+                ],
+                max_tokens=300,
+                temperature=0.0,
+            )
+            raw = resp.choices[0].message.content.strip()
+            data = json.loads(raw)
+            return AgentAction(
+                category=EmailCategory(data.get("category", "normal")),
+                priority=EmailPriority(data.get("priority", "normal")),
+                should_archive=bool(data.get("should_archive", False)),
+                response_draft=data.get("response_draft"),
+                reasoning=data.get("reasoning", ""),
+            )
+        except Exception as e:
+            # Fallback heuristic if LLM call fails
+            body    = observation.body.lower()
+            sender  = observation.sender.lower()
+            subject = observation.subject.lower()
+            if "win" in subject or "prize" in body or "malicious" in body or ".biz" in sender:
+                return AgentAction(category=EmailCategory.SPAM,      priority=EmailPriority.LOW,    should_archive=True,  reasoning=f"Fallback: spam heuristic ({e})")
+            if "ceo" in sender or "urgent" in subject or "latency" in body or "overdue" in subject:
+                return AgentAction(category=EmailCategory.IMPORTANT,  priority=EmailPriority.HIGH,   should_archive=False, reasoning=f"Fallback: importance heuristic ({e})")
+            return AgentAction(category=EmailCategory.NORMAL, priority=EmailPriority.NORMAL, should_archive=False, reasoning=f"Fallback: default ({e})")
+
+
+# ── Main simulation ───────────────────────────────────────────────────────────
+def run_simulation(output_file: Optional[str] = None):
+    env   = SmartEmailTriageEnv()
+    agent = BaselineAgent()
+    grader = EmailTriageGrader()
+
+    obs  = env.reset()
+    done = False
+    step = 0
+
+    print(json.dumps({
+        "event":     "[START]",
+        "model":     MODEL_NAME,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }))
+
+    while not done:
+        step += 1
+        action                      = agent.decide(obs)
+        next_obs, reward, done, info = env.step(action)
+
+        print(json.dumps({
+            "event":    "[STEP]",
+            "step":     step,
+            "email_id": obs.id,
+            "action": {
+                "category":       action.category.value,
+                "priority":       action.priority.value,
+                "should_archive": action.should_archive,
+            },
+            "reward": round(reward, 4),
+            "done":   done,
+        }))
+
+        obs = next_obs
+
+    state  = env.state()
+    report = grader.generate_report(state)
+
+    report_dict = {
+        "summary": {
+            "total_score":  report.total_score,
+            "max_score":    report.max_possible_score,
+            "accuracy":     report.accuracy_percentage,
+            "feedback":     report.summary_feedback,
+        },
+        "results": report.detailed_results,
+    }
+
+    print(json.dumps({
+        "event":       "[END]",
+        "total_steps": step,
+        "total_score": report.total_score,
+        "max_score":   report.max_possible_score,
+        "accuracy":    report.accuracy_percentage,
+        "timestamp":   datetime.utcnow().isoformat() + "Z",
+    }))
+
+    if output_file:
+        with open(output_file, "w") as f:
+            json.dump(report_dict, f, indent=4)
+        print(f"Report saved to {output_file}")
+    else:
+        print("\n=== FINAL GRADE REPORT ===")
+        print(json.dumps(report_dict, indent=4))
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the email triage inference agent.")
+    parser.add_argument("--output", type=str, help="Path to save the JSON results report.")
+    args = parser.parse_args()
+    run_simulation(output_file=args.output)
