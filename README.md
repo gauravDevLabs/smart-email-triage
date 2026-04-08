@@ -1,3 +1,13 @@
+---
+title: Smart Email Triage
+emoji: 🌖
+colorFrom: blue
+colorTo: red
+sdk: docker
+pinned: false
+license: mit
+---
+
 # Smart Email Triage RL Environment
 
 A production-grade reinforcement learning environment for intelligent email triage. This system simulates a real-world inbox where an AI agent must classify, prioritize, and respond to emails autonomously.
@@ -15,7 +25,7 @@ The goal is to develop an agent that can:
 The system is designed with a modular architecture:
 
 - `models.py`: Data models using Pydantic for strict validation.
-- `tasks.py`: Dataset containing 8 emails across Easy, Medium, and Hard difficulty tiers.
+- `tasks.py`: Dataset containing 15 emails across Easy, Medium, and Hard difficulty tiers.
 - `environment.py`: The `SmartEmailTriageEnv` implementing the OpenEnv API.
 - `grader.py`: A deterministic grading system providing detailed performance metrics.
 - `inference.py`: A CLI runner with an LLM-powered agent to demonstrate the environment.
