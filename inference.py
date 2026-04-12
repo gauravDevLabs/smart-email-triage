@@ -96,35 +96,30 @@ def run_simulation(output_file: Optional[str] = None):
     step = 0
     total_reward = 0.0
 
-    _emit(f"[START] task=email_triage model={MODEL_NAME} timestamp={datetime.utcnow().isoformat()}Z")
+    while not done:
+        step += 1
+        task_id = obs.id
 
-    try:
-        while not done:
-            step += 1
-            action = agent.decide(obs)
-            next_obs, reward, done, _info = env.step(action)
-            total_reward += reward
+        _emit(f"[START] task={task_id} model={MODEL_NAME} timestamp={datetime.utcnow().isoformat()}Z")
 
-            _emit(
-                f"[STEP] step={step} reward={round(reward, 4)} "
-                f"email_id={obs.id} category={action.category.value} "
-                f"priority={action.priority.value} archive={action.should_archive} done={done}"
-            )
+        action = agent.decide(obs)
+        next_obs, reward, done, _info = env.step(action)
+        total_reward += reward
 
-            obs = next_obs
-    except Exception as e:
-        _emit(f"[STEP] step={step} reward=0.0 error={type(e).__name__}:{e}")
+        _emit(
+            f"[STEP] step=1 reward={round(reward, 4)} "
+            f"email_id={task_id} category={action.category.value} "
+            f"priority={action.priority.value} archive={action.should_archive} done={done}"
+        )
 
-    # Try to produce a final grade report — but always emit [END] no matter what.
-    total_score = round(total_reward, 4)
-    max_score   = float(step) if step else 0.0
-    accuracy    = 0.0
+        _emit(f"[END] task={task_id} reward={round(reward, 4)} timestamp={datetime.utcnow().isoformat()}Z")
+
+        obs = next_obs
+
+    # Final grade report
     try:
         state = env.state()
         report = grader.generate_report(state)
-        total_score = report.total_score
-        max_score   = report.max_possible_score
-        accuracy    = report.accuracy_percentage
         report_dict = {
             "summary": {
                 "total_score":  report.total_score,
@@ -134,14 +129,8 @@ def run_simulation(output_file: Optional[str] = None):
             },
             "results": report.detailed_results,
         }
-    except Exception as e:
-        report_dict = {"error": f"{type(e).__name__}:{e}"}
-
-    _emit(
-        f"[END] task=email_triage total_steps={step} "
-        f"total_score={total_score} max_score={max_score} "
-        f"accuracy={accuracy} timestamp={datetime.utcnow().isoformat()}Z"
-    )
+    except Exception:
+        report_dict = {"error": "grader failed"}
 
     if output_file:
         try:
