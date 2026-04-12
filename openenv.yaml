@@ -47,14 +47,21 @@ task_registry:
   easy:
     - E001
     - E002
+    - E003
   medium:
     - M001
     - M002
     - M003
+    - M004
   hard:
     - H001
     - H002
     - H003
+    - H004
+    - H005
+    - H006
+    - H007
+    - H008
 
 constraints:
   max_steps_per_email: 1

@@ -152,6 +152,5 @@ def run_simulation(output_file: Optional[str] = None):
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
-# Run unconditionally so the validator gets output whether it executes
-# `python inference.py` or imports the module.
-run_simulation()
+if __name__ == "__main__":
+    run_simulation()
