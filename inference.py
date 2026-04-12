@@ -1,8 +1,7 @@
 import os
 import sys
 import json
-from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from openai import OpenAI
 
 from models import (
@@ -14,16 +13,31 @@ from grader import EmailTriageGrader
 
 # ── Structured logger ────────────────────────────────────────────────────────
 def _emit(line: str) -> None:
-    """Write a line directly to stdout and flush — bypasses any print buffering."""
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
 
 
-# ── OpenAI client (reads env vars set in Space secrets) ──────────────────────
+def log_start(task: str, env: str, model: str) -> None:
+    _emit(f"[START] task={task} env={env} model={model}")
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    done_val = str(done).lower()
+    error_val = error if error else "null"
+    _emit(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}")
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    _emit(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}")
+
+
+# ── OpenAI client ────────────────────────────────────────────────────────────
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api-inference.huggingface.co/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 API_KEY      = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN") or ""
 HAS_API_KEY  = bool(API_KEY)
+BENCHMARK    = "smart-email-triage"
 
 client = OpenAI(api_key=API_KEY or "dummy-key", base_url=API_BASE_URL)
 
@@ -86,58 +100,34 @@ class BaselineAgent:
 
 
 # ── Main simulation ──────────────────────────────────────────────────────────
-def run_simulation(output_file: Optional[str] = None):
+def run_simulation():
     env   = SmartEmailTriageEnv()
     agent = BaselineAgent()
-    grader = EmailTriageGrader()
 
     obs  = env.reset()
     done = False
-    step = 0
-    total_reward = 0.0
+    step_num = 0
+    all_rewards: List[float] = []
 
     while not done:
-        step += 1
+        step_num += 1
         task_id = obs.id
 
-        _emit(f"[START] task={task_id} model={MODEL_NAME} timestamp={datetime.utcnow().isoformat()}Z")
+        log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
         action = agent.decide(obs)
         next_obs, reward, done, _info = env.step(action)
-        total_reward += reward
+        reward = round(reward, 2)
+        all_rewards.append(reward)
 
-        _emit(
-            f"[STEP] step=1 reward={round(reward, 4)} "
-            f"email_id={task_id} category={action.category.value} "
-            f"priority={action.priority.value} archive={action.should_archive} done={done}"
-        )
+        action_str = f"classify(category={action.category.value},priority={action.priority.value},archive={str(action.should_archive).lower()})"
 
-        _emit(f"[END] task={task_id} reward={round(reward, 4)} timestamp={datetime.utcnow().isoformat()}Z")
+        log_step(step=1, action=action_str, reward=reward, done=True, error=None)
+
+        success = reward >= 0.40
+        log_end(success=success, steps=1, score=reward, rewards=[reward])
 
         obs = next_obs
-
-    # Final grade report
-    try:
-        state = env.state()
-        report = grader.generate_report(state)
-        report_dict = {
-            "summary": {
-                "total_score":  report.total_score,
-                "max_score":    report.max_possible_score,
-                "accuracy":     report.accuracy_percentage,
-                "feedback":     report.summary_feedback,
-            },
-            "results": report.detailed_results,
-        }
-    except Exception:
-        report_dict = {"error": "grader failed"}
-
-    if output_file:
-        try:
-            with open(output_file, "w") as f:
-                json.dump(report_dict, f, indent=4)
-        except Exception:
-            pass
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
