@@ -53,8 +53,8 @@ class SmartEmailTriageEnv(Env):
         reward_breakdown = self._compute_reward(action, current_task)
         total_reward = reward_breakdown.compute_total()
         
-        # Normalize reward to [0.0, 1.0] (max possible per email is 2.8)
-        normalized_reward = max(0.0, min(1.0, total_reward / 2.8))
+        # Normalize reward to strictly (0.0, 1.0) — validator rejects exact 0.0 or 1.0
+        normalized_reward = max(0.01, min(0.99, total_reward / 2.8))
 
         # 2. Record Result
         is_correct = self._check_correctness(action, current_task)

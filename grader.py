@@ -22,7 +22,7 @@ class EmailTriageGrader:
     def generate_report(self, state: EnvironmentState) -> GradeReport:
         """Analyze the environment state and generate a comprehensive GradeReport."""
         results = state.history
-        total_score = sum(max(0.0, min(1.0, res.reward.compute_total() / 2.8)) for res in results)
+        total_score = sum(max(0.01, min(0.99, res.reward.compute_total() / 2.8)) for res in results)
         max_possible_score = float(len(results))  # Each email scores 0.0–1.0
 
         correct_count = sum(1 for res in results if res.is_correct)
@@ -34,7 +34,7 @@ class EmailTriageGrader:
         for res in results:
             detailed_results.append({
                 "email_id": res.email_id,
-                "reward": round(max(0.0, min(1.0, res.reward.compute_total() / 2.8)), 4),
+                "reward": round(max(0.01, min(0.99, res.reward.compute_total() / 2.8)), 4),
                 "is_correct": res.is_correct,
                 "feedback": res.feedback,
                 "action": {
